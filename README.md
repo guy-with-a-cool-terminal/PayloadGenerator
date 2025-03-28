@@ -33,7 +33,7 @@ sudo apt update && sudo apt install metasploit-framework python3
 
 ### **2️⃣ Run the Script**  
 ```bash
-python3 script.py
+sudo python3 payload.py
 ```
 
 ---
